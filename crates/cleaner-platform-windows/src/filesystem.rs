@@ -1,128 +1,143 @@
-use std::fs;
+use std::fs::{self, File, Metadata, OpenOptions};
 use std::io;
+use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
-use windows::core::PCWSTR;
+use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Storage::FileSystem::{
-    GetFileAttributesW, SetFileAttributesW, FILE_ATTRIBUTE_READONLY,
-    FILE_ATTRIBUTE_REPARSE_POINT, INVALID_FILE_ATTRIBUTES,
+    FileDispositionInfo, SetFileInformationByHandle, FILE_ATTRIBUTE_REPARSE_POINT,
+    FILE_DISPOSITION_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    FILE_SHARE_READ, FILE_SHARE_WRITE,
 };
 
-/// Normalizes a Windows path by stripping the UNC prefix `\\?\` if present.
+/// Strips only the DOS verbatim prefix, preserving non-DOS namespaces for rejection.
 pub fn normalize_path(path: &Path) -> PathBuf {
-    let s = path.to_string_lossy();
-    if let Some(stripped) = s.strip_prefix(r"\\?\") {
-        PathBuf::from(stripped)
-    } else {
-        path.to_path_buf()
-    }
-}
-
-/// Converts a Path to a null-terminated UTF-16 wide string vector.
-fn to_wide_path(path: &Path) -> Vec<u16> {
-    path.as_os_str()
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect()
-}
-
-use std::os::windows::ffi::OsStrExt;
-
-/// Checks if a file or directory is a Windows reparse point (junction, symlink, mount point).
-pub fn is_reparse_point(path: &Path) -> io::Result<bool> {
-    if !path.exists() && !path.is_symlink() {
-        return Ok(false);
-    }
-    let wide = to_wide_path(path);
-    unsafe {
-        let attrs = GetFileAttributesW(PCWSTR(wide.as_ptr()));
-        if attrs == INVALID_FILE_ATTRIBUTES {
-            return Err(io::Error::last_os_error());
+    let text = path.to_string_lossy();
+    if let Some(dos) = text.strip_prefix(r"\\?\") {
+        if dos.as_bytes().get(1) == Some(&b':') {
+            return PathBuf::from(dos);
         }
-        Ok((attrs & FILE_ATTRIBUTE_REPARSE_POINT.0) != 0)
     }
+    path.to_owned()
 }
 
-/// Checks if a path is a junction or symlink.
+pub fn has_reparse_attribute(metadata: &Metadata) -> bool {
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT.0 != 0
+}
+
+pub fn is_reparse_point(path: &Path) -> io::Result<bool> {
+    Ok(has_reparse_attribute(&fs::symlink_metadata(path)?))
+}
+
 pub fn is_junction_or_symlink(path: &Path) -> io::Result<bool> {
-    if path.is_symlink() {
-        return Ok(true);
-    }
     is_reparse_point(path)
 }
 
-/// Removes the read-only attribute from a file or directory so it can be safely removed.
-pub fn remove_readonly_flag(path: &Path) -> io::Result<()> {
-    let wide = to_wide_path(path);
+pub fn verify_plain_path(path: &Path) -> io::Result<()> {
+    let ancestors: Vec<_> = path.ancestors().collect();
+    for component in ancestors.into_iter().rev() {
+        if is_reparse_point(component)? {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "reparse point in path",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn lock_plain_directory(path: &Path) -> io::Result<File> {
+    let handle = OpenOptions::new()
+        .access_mode(1) // FILE_LIST_DIRECTORY
+        .share_mode(FILE_SHARE_READ.0 | FILE_SHARE_WRITE.0)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0 | FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)?;
+    let meta = handle.metadata()?;
+    if !meta.is_dir() || has_reparse_attribute(&meta) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "ancestor is not a plain directory",
+        ));
+    }
+    Ok(handle)
+}
+
+/// Holds ancestor handles without delete sharing, then validates and deletes on the same file handle.
+pub fn delete_file_checked(
+    path: &Path,
+    eligible: impl FnOnce(&Metadata) -> bool,
+) -> io::Result<u64> {
+    let ancestors: Vec<_> = path.ancestors().skip(1).collect();
+    let _guards = ancestors
+        .into_iter()
+        .rev()
+        .map(lock_plain_directory)
+        .collect::<io::Result<Vec<_>>>()?;
+    let file = OpenOptions::new()
+        .access_mode(0x10000 | 0x80) // DELETE and FILE_READ_ATTRIBUTES
+        .share_mode(FILE_SHARE_READ.0)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file()
+        || has_reparse_attribute(&metadata)
+        || metadata.permissions().readonly()
+        || !eligible(&metadata)
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "file is protected or changed since inspection",
+        ));
+    }
+    let info = FILE_DISPOSITION_INFO {
+        DeleteFile: true.into(),
+    };
     unsafe {
-        let attrs = GetFileAttributesW(PCWSTR(wide.as_ptr()));
-        if attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_READONLY.0) != 0 {
-            let new_attrs = attrs & !FILE_ATTRIBUTE_READONLY.0;
-            let result = SetFileAttributesW(PCWSTR(wide.as_ptr()), windows::Win32::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES(new_attrs));
-            if let Err(e) = result {
-                return Err(io::Error::new(io::ErrorKind::Other, e.to_string()));
+        SetFileInformationByHandle(
+            HANDLE(file.as_raw_handle()),
+            FileDispositionInfo,
+            (&info as *const FILE_DISPOSITION_INFO).cast(),
+            std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
+        )
+        .map_err(|error| {
+            let code = error.code().0;
+            if code as u32 >> 16 == 0x8007 {
+                io::Error::from_raw_os_error(code & 0xffff)
+            } else {
+                io::Error::other(error)
             }
-        }
+        })?;
     }
-    Ok(())
+    Ok(metadata.len())
 }
 
-/// Safely removes a file, clearing read-only attributes if needed.
-/// If the file is locked or in use by an active process, it returns an error rather than forcing truncation.
 pub fn delete_file_safely(path: &Path) -> io::Result<()> {
-    if is_junction_or_symlink(path)? {
-        // Remove symlink without following
-        return fs::remove_file(path);
-    }
-
-    match fs::remove_file(path) {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            // Try removing read-only attribute and re-attempting deletion
-            let _ = remove_readonly_flag(path);
-            fs::remove_file(path).map_err(|_| e)
-        }
-    }
+    delete_file_checked(path, |_| true).map(|_| ())
 }
 
-/// Safely removes an empty or populated directory with single-pass deletion, returning (reclaimed_bytes, files_deleted).
 pub fn delete_dir_safely_with_stats(path: &Path) -> io::Result<(u64, usize)> {
-    if is_junction_or_symlink(path)? {
-        fs::remove_dir(path)?;
-        return Ok((0, 1));
-    }
-
-    let mut total_bytes = 0;
-    let mut total_files = 0;
-
-    delete_dir_recursive_with_stats(path, &mut total_bytes, &mut total_files)?;
-    let _ = fs::remove_dir(path);
-    Ok((total_bytes, total_files))
-}
-
-fn delete_dir_recursive_with_stats(dir: &Path, total_bytes: &mut u64, total_files: &mut usize) -> io::Result<()> {
-    if let Ok(read_dir) = fs::read_dir(dir) {
-        for entry in read_dir.flatten() {
-            let p = entry.path();
-            let is_symlink = is_junction_or_symlink(&p).unwrap_or(false);
-            if let Ok(meta) = entry.metadata() {
-                if meta.is_dir() && !is_symlink {
-                    let _ = delete_dir_recursive_with_stats(&p, total_bytes, total_files);
-                    let _ = fs::remove_dir(&p);
-                } else {
-                    let size = meta.len();
-                    let _ = remove_readonly_flag(&p);
-                    if fs::remove_file(&p).is_ok() {
-                        *total_bytes += size;
-                        *total_files += 1;
-                    }
-                }
-            }
+    verify_plain_path(path)?;
+    let mut bytes = 0;
+    let mut files = 0;
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        let metadata = entry.metadata()?;
+        if has_reparse_attribute(&metadata) {
+            continue;
+        }
+        if metadata.is_dir() {
+            let (child_bytes, child_files) = delete_dir_safely_with_stats(&entry.path())?;
+            bytes += child_bytes;
+            files += child_files;
+        } else {
+            bytes += delete_file_checked(&entry.path(), |_| true)?;
+            files += 1;
         }
     }
-    Ok(())
+    fs::remove_dir(path)?;
+    Ok((bytes, files))
 }
 
-/// Safely removes an empty or populated directory with granular fallback for locked children.
 pub fn delete_dir_safely(path: &Path) -> io::Result<()> {
     delete_dir_safely_with_stats(path).map(|_| ())
 }

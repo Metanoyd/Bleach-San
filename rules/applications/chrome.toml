@@ -1,24 +1,13 @@
 id = "chrome"
-name = "Google Chrome Cache"
+name = "Chrome Web Cache"
 category = "applications"
-description = "Web browsing cache and GPU shader cache for Google Chrome."
+description = "Cached web assets for installed profiles. Close the browser before cleaning."
 safety = "Safe"
 
 [[targets]]
-path = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache\\Cache_Data"
 action = "DeleteContents"
-allowed_root = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Cache"
-
-[[targets]]
-path = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Code Cache"
-action = "DeleteContents"
-allowed_root = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\Code Cache"
-
-[[targets]]
-path = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\GPUCache"
-action = "DeleteContents"
-allowed_root = "%LOCALAPPDATA%\\Google\\Chrome\\User Data\\Default\\GPUCache"
+allowed_root = '%LOCALAPPDATA%\Google\Chrome\User Data'
+discovery = { type = "profile_cache", base = '%LOCALAPPDATA%\Google\Chrome\User Data', leaf = 'Cache\Cache_Data', chromium = true }
 
 [requirements]
 process_closed = "chrome.exe"
-requires_admin = false

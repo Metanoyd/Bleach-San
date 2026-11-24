@@ -9,17 +9,35 @@ pub fn plan_to_ui_item(plan: &CleanupPlan) -> UICleanerItem {
         id: plan.rule_id.clone().into(),
         name: plan.rule_name.clone().into(),
         category: plan.category.to_uppercase().into(),
-        description: plan.description.clone().into(),
+        description: plan
+            .warnings
+            .first()
+            .cloned()
+            .unwrap_or_else(|| {
+                let count = plan.candidates.len();
+                plan.candidates
+                    .first()
+                    .map(|target| {
+                        format!(
+                            "{} • {}{}",
+                            plan.description,
+                            target.display_path,
+                            if count > 1 {
+                                format!(" (+{} more)", count - 1)
+                            } else {
+                                String::new()
+                            }
+                        )
+                    })
+                    .unwrap_or_else(|| plan.description.clone())
+            })
+            .into(),
         size_formatted: format_bytes(plan.total_bytes).into(),
         file_count: plan.total_files as i32,
         safety_level: plan.safety.to_string().into(),
         is_selected: plan.is_selected,
         is_blocked: plan.is_blocked_by_process,
-        blocked_process: plan
-            .blocked_process_name
-            .clone()
-            .unwrap_or_default()
-            .into(),
+        blocked_process: plan.blocked_process_name.clone().unwrap_or_default().into(),
     }
 }
 

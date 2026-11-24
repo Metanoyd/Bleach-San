@@ -18,6 +18,12 @@ impl Default for RuleAction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum DiscoveryStrategy {
+    #[serde(rename = "profile_cache")]
+    ProfileCache {
+        base: String,
+        leaf: String,
+        chromium: bool,
+    },
     #[serde(rename = "config")]
     Config {
         file: String,
@@ -27,9 +33,7 @@ pub enum DiscoveryStrategy {
         append: Option<String>, // Path to append after the key value
     },
     #[serde(rename = "glob")]
-    Glob {
-        pattern: String,
-    },
+    Glob { pattern: String },
     #[serde(rename = "deep_search")]
     DeepSearch {
         base_paths: Vec<String>,

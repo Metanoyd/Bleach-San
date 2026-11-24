@@ -1,66 +1,43 @@
-# BleachSan
+# BleachSan 1.2
 
-BleachSan is a native, high-performance Windows storage cleaner and disk analyzer designed for speed, safety, and strict resource control. It is built in Rust and uses Slint for a lightweight graphical interface.
+BleachSan is a Windows x64 storage cleaner and analyzer built in Rust with Slint.
 
-## Core Concepts & Architecture
+## Run it
 
-The application is structured to provide deep disk analysis and cache cleaning while maintaining strict bounds on CPU and memory utilization.
+Download the versioned executable from [GitHub Releases](https://github.com/Metanoyd/Bleach-San/releases). Double-click it for the GUI. Routine scans and cache cleanup use the caller’s Windows permissions. Creating a Windows restore point is an explicit administrator action.
 
-### 1. Bounded Concurrency Engine
-Traditional disk scanners either run strictly single-threaded (which is slow) or spawn unlimited threads (which saturates the CPU and starves other applications). BleachSan uses a bounded parallel orchestrator built on `rayon` and `jwalk`. The disk traversal engine is hard-capped to a strict 2-thread pool. This ensures that concurrent directory scanning operates fast enough to utilize SSD read speeds while physically preventing the application from exceeding low single-digit CPU usage (typically 3-5%) during heavy I/O operations.
+- **Cleaner** scans known application cache locations and your local Temp files last changed at least seven days ago.
+- **Include read-only discoveries** checks more locations for likely caches, development output, and other items to inspect.
+- **Storage** ranks readable folders on the selected drive. **Large Files** lists files by size and can locate them in Explorer.
+- Review the selected locations, then confirm cleanup of their current eligible files. A browser or application that is open can block its cache cleanup. The result reports skipped files and errors.
 
-### 2. Reparse Point Isolation
-Scanning cloud-synchronized directories (such as OneDrive or Google Drive) often traps disk analyzers in loops, causing them to index hundreds of gigabytes of remote placeholders and spike CPU usage. BleachSan implements a custom pre-read filter at the Win32 filesystem level. It explicitly detects and blocks traversal into Windows Reparse Points and Junctions. This prevents the scanner from aggressively querying remote cloud files or falling into recursive directory structures.
+Storage totals are logical file lengths. NTFS compression, sparse files, hard links, and concurrent activity can change the observed free-space gain. Linked and inaccessible directory entries are skipped. See [release research notes](docs/release-1.2.md) for the rule boundaries.
 
-### 3. Declarative Rule Engine
-Rather than hardcoding file paths, BleachSan uses a deterministic, TOML-based rule engine. Cleaning definitions are separated from the core application logic. The engine parses these rules to locate temporary files, browser caches, and application logs using exact path resolution, environment variable expansion, and constrained deep searches. 
+When upgrading from 1.1 with scheduled cleanup enabled, the existing Windows task continues to use the executable it was registered with. Check its action in Task Scheduler before relying on 1.2 rules and re-register it from the version you intend to run.
 
-### 4. Fail-Closed Safety Model
-The application enforces a strict safety boundary before any file deletion occurs. The safety validator intercepts all resolved paths and verifies them against a hardcoded list of protected root directories (e.g., `C:\Windows`, `C:\Users\Public`, or the root of any drive). If a rule attempts to traverse into a protected zone, the engine will fail closed and reject the operation, preventing accidental system damage.
+## Build and test
 
-## Tech Stack
-
-- **Language**: Rust
-- **User Interface**: Slint
-- **Concurrency**: Rayon (Thread pooling), Crossbeam (Channel communication)
-- **Filesystem Traversal**: jwalk
-- **OS Bindings**: windows-rs (Direct Win32 API access)
-- **Data Serialization**: Serde, toml
-
-## Project Structure
-
-- `crates/cleaner-platform-windows/`: Direct Win32 bindings and OS primitives (e.g., Reparse Point detection, Task Scheduler integration).
-- `crates/cleaner-core/`: The backend engine containing the safety validator, TOML rule parser, and bounded streaming scanner.
-- `crates/cleaner-ui/`: Slint frontend definitions and viewmodels.
-- `crates/cleaner-app/`: Combined executable entry point.
-- `rules/`: External TOML configurations defining cleanup targets for browsers and applications.
-
-## Download & Installation
-
-You can run BleachSan without needing to use the terminal or compile code:
-
-1. **GitHub Releases:** Navigate to the [Releases](https://github.com/Tushar27-git/Bleach-San/releases) section of this repository and download the latest compiled executable.
-2. **Direct Execution:** Alternatively, if you have downloaded or cloned the full repository, you can simply open the `target\release\` folder in Windows Explorer and double-click `bleachsan.exe` to launch the graphical interface directly.
-
-## Building from Source
-
-Ensure you have the Rust toolchain installed for Windows x86-64.
+Use a Windows x64 Rust toolchain and the Visual Studio Developer Command Prompt.
 
 ```powershell
-# Build and run the graphical interface
-cargo run -p cleaner-app --release
-
-# Execute headless scanning from the command line
-cargo run -p cleaner-app --release -- --scan
-
-# Execute the storage analyzer via CLI
-cargo run -p cleaner-app --release -- --analyze
+cargo test --workspace --locked
+cargo build -p cleaner-app --release --locked
 ```
 
-## Testing
-
-The core engine includes a comprehensive test suite to verify safety boundaries, rule resolution, and path traversal rejection.
+The executable is at `target\release\bleachsan.exe`. For terminal output from PowerShell, run it with `Start-Process -NoNewWindow -Wait`.
 
 ```powershell
-cargo test -p cleaner-core
+Start-Process -NoNewWindow -Wait .\target\release\bleachsan.exe -ArgumentList '--scan','--drive','C:'
+Start-Process -NoNewWindow -Wait .\target\release\bleachsan.exe -ArgumentList '--scan','--discover','--drive','C:'
+Start-Process -NoNewWindow -Wait .\target\release\bleachsan.exe -ArgumentList '--analyze','--drive','C:'
 ```
+
+`--clean-safe` and `--scheduled` are destructive commands for verified default categories. Use `--scan` to preview the categories first.
+
+## Source layout
+
+- `crates/cleaner-app` is the Windows executable and CLI.
+- `crates/cleaner-ui` contains the Slint interface and worker bridge.
+- `crates/cleaner-core` owns rule selection, previews, cleanup, and storage analysis.
+- `crates/cleaner-platform-windows` owns Windows-specific filesystem, process, and shell operations.
+- `rules` contains the rule catalogue. The loader activates the recipes audited for 1.2.

@@ -1,29 +1,41 @@
 use cleaner_core::format_bytes;
 use cleaner_core::models::SafetyLevel;
 use cleaner_core::rules::get_embedded_rules;
-use cleaner_core::scanner::scan_all_rules;
+use cleaner_core::scanner::{scan_all_rules, scan_with_discovery};
 use cleaner_core::storage::StorageAnalyzer;
-use std::env;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-pub fn run_cli_scan() {
+pub fn run_cli_scan(drive: Option<&str>, discover: bool) {
     let rules = get_embedded_rules();
     let cancel = Arc::new(AtomicBool::new(false));
 
     println!("Scanning {} cleaner rules...", rules.len());
-    let plans = scan_all_rules(&rules, None, None, cancel);
+    let plans = if discover {
+        scan_with_discovery(&rules, drive, cancel)
+    } else {
+        scan_all_rules(&rules, drive, None, cancel)
+    };
 
-    println!("\n{:<32} {:<14} {:<8} {:<12} {:<24}", "RULE", "CATEGORY", "SAFETY", "RECLAIMABLE", "STATUS");
+    println!(
+        "\n{:<32} {:<14} {:<8} {:<12} {:<24}",
+        "RULE", "CATEGORY", "SAFETY", "FILE BYTES", "STATUS"
+    );
     println!("{:-<92}", "");
 
     let mut grand_total = 0;
     for plan in &plans {
-        if plan.total_bytes > 0 {
+        if plan.total_bytes > 0 || !plan.warnings.is_empty() {
             grand_total += plan.total_bytes;
+            for warning in &plan.warnings {
+                println!("  Note: {warning}");
+            }
             let status = if plan.is_blocked_by_process {
-                format!("BLOCKED ({})", plan.blocked_process_name.as_deref().unwrap_or("Active"))
+                format!(
+                    "BLOCKED ({})",
+                    plan.blocked_process_name.as_deref().unwrap_or("Active")
+                )
             } else if plan.is_selected {
                 "SELECTED".to_string()
             } else {
@@ -41,17 +53,23 @@ pub fn run_cli_scan() {
     }
 
     println!("{:-<92}", "");
-    println!("Total Reclaimable Space: {}", format_bytes(grand_total));
+    println!(
+        "Total inspected logical bytes: {}",
+        format_bytes(grand_total)
+    );
 }
 
-pub fn run_cli_scheduled_clean() {
+pub fn run_cli_scheduled_clean(drive: Option<&str>) {
     tracing::info!("Starting scheduled headless cleanup");
     let rules = get_embedded_rules();
     let cancel = Arc::new(AtomicBool::new(false));
 
     // Only scan and select SAFE rules
-    let safe_rules: Vec<_> = rules.into_iter().filter(|r| r.safety == SafetyLevel::Safe).collect();
-    let plans = scan_all_rules(&safe_rules, None, None, cancel);
+    let safe_rules: Vec<_> = rules
+        .into_iter()
+        .filter(|r| r.safety == SafetyLevel::Safe)
+        .collect();
+    let plans = scan_all_rules(&safe_rules, drive, None, cancel);
 
     let results = cleaner_core::execute_all_selected(&plans);
     let total_reclaimed: u64 = results.iter().map(|r| r.reclaimed_bytes).sum();
@@ -62,14 +80,15 @@ pub fn run_cli_scheduled_clean() {
         format_bytes(total_reclaimed),
         total_files
     );
-    println!("Scheduled cleanup complete: reclaimed {}", format_bytes(total_reclaimed));
+    println!(
+        "Scheduled cleanup complete: reclaimed {}",
+        format_bytes(total_reclaimed)
+    );
 }
 
-pub fn run_cli_storage_analyze() {
+pub fn run_cli_storage_analyze(drive: &str) {
     let cancel = Arc::new(AtomicBool::new(false));
-    let root = env::var("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("C:\\"));
+    let root = PathBuf::from(drive);
 
     println!("Analyzing storage in {:?}...", root);
     let items = StorageAnalyzer::analyze_directory(&root, &cancel, 30);

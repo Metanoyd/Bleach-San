@@ -1,28 +1,23 @@
 id = "directx_shader"
-name = "DirectX Shader Cache"
+name = "GPU Shader Caches"
 category = "system"
-description = "Compiled graphics shader caches for DirectX, NVIDIA, and AMD."
+description = "Regenerable graphics caches. The next game launch may recompile shaders."
 safety = "Review"
 
 [[targets]]
-path = "%LOCALAPPDATA%\\D3DSCache"
 action = "DeleteContents"
-allowed_root = "%LOCALAPPDATA%"
+allowed_root = '%LOCALAPPDATA%\D3DSCache'
+path = '%LOCALAPPDATA%\D3DSCache'
 
 [[targets]]
-path = "%LOCALAPPDATA%\\NVIDIA\\GLCache"
 action = "DeleteContents"
-allowed_root = "%LOCALAPPDATA%\\NVIDIA"
+allowed_root = '%LOCALAPPDATA%\NVIDIA'
+path = '%LOCALAPPDATA%\NVIDIA\DXCache'
 
 [[targets]]
-path = "%LOCALAPPDATA%\\NVIDIA\\DXCache"
 action = "DeleteContents"
-allowed_root = "%LOCALAPPDATA%\\NVIDIA"
-
-[[targets]]
-path = "%LOCALAPPDATA%\\AMD\\DxCache"
-action = "DeleteContents"
-allowed_root = "%LOCALAPPDATA%\\AMD"
+allowed_root = '%USERPROFILE%\AppData\LocalLow\NVIDIA'
+path = '%USERPROFILE%\AppData\LocalLow\NVIDIA\PerDriverVersion\DXCache'
 
 [requirements]
-requires_admin = false
+process_closed = "FortniteClient-Win64-Shipping.exe, VALORANT-Win64-Shipping.exe, RobloxPlayerBeta.exe, UnrealEditor.exe"

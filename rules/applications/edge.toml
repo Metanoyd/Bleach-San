@@ -1,24 +1,13 @@
 id = "edge"
-name = "Microsoft Edge Cache"
+name = "Edge Web Cache"
 category = "applications"
-description = "Web browsing cache and GPU shader cache for Microsoft Edge."
+description = "Cached web assets for installed profiles. Close the browser before cleaning."
 safety = "Safe"
 
 [[targets]]
-path = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Cache\\Cache_Data"
 action = "DeleteContents"
-allowed_root = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Cache"
-
-[[targets]]
-path = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Code Cache"
-action = "DeleteContents"
-allowed_root = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Code Cache"
-
-[[targets]]
-path = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\GPUCache"
-action = "DeleteContents"
-allowed_root = "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\GPUCache"
+allowed_root = '%LOCALAPPDATA%\Microsoft\Edge\User Data'
+discovery = { type = "profile_cache", base = '%LOCALAPPDATA%\Microsoft\Edge\User Data', leaf = 'Cache\Cache_Data', chromium = true }
 
 [requirements]
 process_closed = "msedge.exe"
-requires_admin = false

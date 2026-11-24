@@ -15,7 +15,11 @@ pub fn get_protected_paths() -> Vec<PathBuf> {
         protected.push(p.join("INF"));
         // Critical driver and kernel stores
         protected.push(p.join("System32").join("drivers"));
-        protected.push(p.join("System32").join("DriverStore").join("FileRepository"));
+        protected.push(
+            p.join("System32")
+                .join("DriverStore")
+                .join("FileRepository"),
+        );
         protected.push(p.join("System32").join("config"));
         protected.push(p.join("System32").join("catroot"));
         protected.push(p.join("System32").join("catroot2"));
@@ -56,7 +60,20 @@ pub fn get_protected_paths() -> Vec<PathBuf> {
 /// Checks if a path is inside any forbidden system kernel, active driver repository, or security credential directory.
 pub fn is_forbidden_from_cleanup(path: &Path) -> bool {
     let path_lower = path.to_string_lossy().to_lowercase();
-    
+
+    let windows = std::env::var("SYSTEMROOT")
+        .unwrap_or_else(|_| r"C:\Windows".into())
+        .to_lowercase();
+    let normalized = Path::new(&path_lower);
+    if normalized.starts_with(&windows)
+        || get_protected_paths().iter().any(|p| {
+            let root = p.to_string_lossy().to_lowercase();
+            (root.ends_with(r"\program files") || root.ends_with(r"\program files (x86)"))
+                && normalized.starts_with(&root)
+        })
+    {
+        return true;
+    }
     // Strict blocklist for active Windows drivers, core registry, system volume, security keys, and git repositories
     if path_lower.contains("system32\\drivers")
         || path_lower.contains("driverstore\\filerepository")
@@ -92,7 +109,10 @@ pub fn is_exact_protected_path(path: &Path) -> bool {
 
     let protected = get_protected_paths();
     for p in protected {
-        if path == p {
+        if path
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&p.to_string_lossy())
+        {
             return true;
         }
     }

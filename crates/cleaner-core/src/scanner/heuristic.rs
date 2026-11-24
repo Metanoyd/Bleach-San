@@ -45,7 +45,8 @@ impl HeuristicDiscoveryEngine {
                 continue;
             }
 
-            let (discovered_items, loose_junk_files) = Self::crawl_drive_for_caches(&root_path, cancel_flag);
+            let (discovered_items, loose_junk_files) =
+                Self::crawl_drive_for_caches(&root_path, cancel_flag);
 
             // 1. Process individual discovered cache directories
             for item in discovered_items {
@@ -62,7 +63,11 @@ impl HeuristicDiscoveryEngine {
                 let validated_path = match validate_target_path(&item.path, None) {
                     Ok(p) => p,
                     Err(e) => {
-                        tracing::debug!("Heuristic discovery skipped protected '{:?}': {}", item.path, e);
+                        tracing::debug!(
+                            "Heuristic discovery skipped protected '{:?}': {}",
+                            item.path,
+                            e
+                        );
                         continue;
                     }
                 };
@@ -82,9 +87,9 @@ impl HeuristicDiscoveryEngine {
                     size_bytes: stats.total_bytes,
                     file_count: stats.file_count,
                     is_dir: validated_path.is_dir(),
-                    safety: item.safety,
+                    safety: SafetyLevel::Protected,
                     is_locked: false,
-                    is_selected: item.safety == SafetyLevel::Safe,
+                    is_selected: false,
                     action: item.action,
                     pattern: None,
                     exclude: Vec::new(),
@@ -104,8 +109,8 @@ impl HeuristicDiscoveryEngine {
                     candidates: vec![candidate],
                     total_bytes: stats.total_bytes,
                     total_files: stats.file_count,
-                    safety: item.safety,
-                    is_selected: item.safety == SafetyLevel::Safe && stats.total_bytes > 0,
+                    safety: SafetyLevel::Protected,
+                    is_selected: false,
                     is_blocked_by_process: false,
                     blocked_process_name: None,
                     requires_admin: false,
@@ -127,9 +132,9 @@ impl HeuristicDiscoveryEngine {
                             size_bytes: *fsize,
                             file_count: 1,
                             is_dir: false,
-                            safety: SafetyLevel::Safe,
+                            safety: SafetyLevel::Protected,
                             is_locked: false,
-                            is_selected: true,
+                            is_selected: false,
                             action: RuleAction::DeleteContents,
                             pattern: None,
                             exclude: Vec::new(),
@@ -137,15 +142,24 @@ impl HeuristicDiscoveryEngine {
                     }
 
                     discovered_plans.push(CleanupPlan {
-                        rule_id: format!("heuristic_junk_{}", drv.trim_end_matches('\\').to_lowercase()),
-                        rule_name: format!("Drive File Junk & Thumbs ({})", drv.trim_end_matches('\\')),
+                        rule_id: format!(
+                            "heuristic_junk_{}",
+                            drv.trim_end_matches('\\').to_lowercase()
+                        ),
+                        rule_name: format!(
+                            "Drive File Junk & Thumbs ({})",
+                            drv.trim_end_matches('\\')
+                        ),
                         category: "SYSTEM".to_string(),
-                        description: format!("Discovered loose .tmp, .log, .dmp, and Thumbs.db files on {}", drv),
+                        description: format!(
+                            "Discovered loose .tmp, .log, .dmp, and Thumbs.db files on {}",
+                            drv
+                        ),
                         candidates,
                         total_bytes: total_junk_bytes,
                         total_files: total_junk_count,
-                        safety: SafetyLevel::Safe,
-                        is_selected: true,
+                        safety: SafetyLevel::Protected,
+                        is_selected: false,
                         is_blocked_by_process: false,
                         blocked_process_name: None,
                         requires_admin: false,
@@ -176,7 +190,9 @@ impl HeuristicDiscoveryEngine {
                     if let Ok(dir_entry) = dir_entry_result {
                         let p = dir_entry.path();
                         // Skip symlinks and junctions to avoid infinite loops
-                        if cleaner_platform_windows::filesystem::is_junction_or_symlink(&p).unwrap_or(false) {
+                        if cleaner_platform_windows::filesystem::is_junction_or_symlink(&p)
+                            .unwrap_or(false)
+                        {
                             dir_entry.read_children_path = None;
                             continue;
                         }
@@ -185,10 +201,7 @@ impl HeuristicDiscoveryEngine {
                             dir_entry.read_children_path = None;
                             continue;
                         }
-                        let name_lower = dir_entry
-                            .file_name
-                            .to_string_lossy()
-                            .to_lowercase();
+                        let name_lower = dir_entry.file_name.to_string_lossy().to_lowercase();
                         // Skip system core directories
                         if name_lower == "system volume information"
                             || name_lower == "$recycle.bin"
@@ -265,10 +278,7 @@ impl HeuristicDiscoveryEngine {
     }
 
     /// Classifies a folder by its signature into a DiscoveredCache item with zero-copy comparisons.
-    fn classify_folder_signature(
-        path: &Path,
-        original_name: &str,
-    ) -> Option<DiscoveredCache> {
+    fn classify_folder_signature(path: &Path, original_name: &str) -> Option<DiscoveredCache> {
         let path_str = path.to_string_lossy();
 
         // 1. Game Shaders, Logs, Crashes & Engine Caches
@@ -280,7 +290,11 @@ impl HeuristicDiscoveryEngine {
             || original_name.eq_ignore_ascii_case("dx11_cache")
             || original_name.eq_ignore_ascii_case("dx12_cache")
         {
-            let parent_desc = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("Game");
+            let parent_desc = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("Game");
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: format!("Game Shader Cache ({})", parent_desc),
@@ -293,7 +307,11 @@ impl HeuristicDiscoveryEngine {
 
         // Unreal Engine Game Saved / Logs / Crashes / DerivedDataCache
         if original_name.eq_ignore_ascii_case("deriveddatacache") {
-            let parent_desc = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("Game");
+            let parent_desc = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("Game");
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: format!("Unreal Engine Derived Data ({})", parent_desc),
@@ -310,9 +328,18 @@ impl HeuristicDiscoveryEngine {
             || original_name.eq_ignore_ascii_case("crashes")
             || original_name.eq_ignore_ascii_case("crashreports")
             || original_name.eq_ignore_ascii_case("crashdumps"))
-            && (path_lower.contains("saved") || path_lower.contains("games") || path_lower.contains("steam") || path_lower.contains("riot") || path_lower.contains("epic"))
+            && (path_lower.contains("saved")
+                || path_lower.contains("games")
+                || path_lower.contains("steam")
+                || path_lower.contains("riot")
+                || path_lower.contains("epic"))
         {
-            let game_desc = path.parent().and_then(|p| p.parent()).and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("Game");
+            let game_desc = path
+                .parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("Game");
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: format!("Game Logs & Crashes ({})", game_desc),
@@ -324,8 +351,15 @@ impl HeuristicDiscoveryEngine {
         }
 
         // Unity Game & Project Caches (webCaches, ShaderCache, ArtifactDB)
-        if original_name.eq_ignore_ascii_case("webcaches") || original_name.eq_ignore_ascii_case("webcache2") || (original_name.eq_ignore_ascii_case("webcache") && path_lower.contains("game")) {
-            let game_desc = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("Game");
+        if original_name.eq_ignore_ascii_case("webcaches")
+            || original_name.eq_ignore_ascii_case("webcache2")
+            || (original_name.eq_ignore_ascii_case("webcache") && path_lower.contains("game"))
+        {
+            let game_desc = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("Game");
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: format!("Game Embedded Web Cache ({})", game_desc),
@@ -336,8 +370,17 @@ impl HeuristicDiscoveryEngine {
             });
         }
 
-        if (original_name.eq_ignore_ascii_case("shadercache") || original_name.eq_ignore_ascii_case("artifactdb") || original_name.eq_ignore_ascii_case("packagecache")) && path_lower.contains("library") {
-            let proj_desc = path.parent().and_then(|p| p.parent()).and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("Unity Project");
+        if (original_name.eq_ignore_ascii_case("shadercache")
+            || original_name.eq_ignore_ascii_case("artifactdb")
+            || original_name.eq_ignore_ascii_case("packagecache"))
+            && path_lower.contains("library")
+        {
+            let proj_desc = path
+                .parent()
+                .and_then(|p| p.parent())
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("Unity Project");
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: format!("Unity Project Cache ({})", proj_desc),
@@ -349,20 +392,34 @@ impl HeuristicDiscoveryEngine {
         }
 
         // Launcher Download and Temp Chunks
-        if original_name.eq_ignore_ascii_case("downloading") || original_name.eq_ignore_ascii_case("vaultcache") || (original_name.eq_ignore_ascii_case("temp") && path_lower.contains("steamapps")) {
-            let parent_desc = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("Game Launcher");
+        if original_name.eq_ignore_ascii_case("downloading")
+            || original_name.eq_ignore_ascii_case("vaultcache")
+            || (original_name.eq_ignore_ascii_case("temp") && path_lower.contains("steamapps"))
+        {
+            let parent_desc = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("Game Launcher");
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: format!("Game Download & Vault Chunks ({})", parent_desc),
                 category: "GAMES".to_string(),
-                description: format!("Temporary installer and download depot chunks in {}", path_str),
+                description: format!(
+                    "Temporary installer and download depot chunks in {}",
+                    path_str
+                ),
                 safety: SafetyLevel::Safe,
                 action: RuleAction::DeleteContents,
             });
         }
 
         // 2. Media, Video & Creative Content Creation Scratch Disks
-        if original_name.eq_ignore_ascii_case("cacheclip") || path_lower.contains("cacheclip") || original_name.eq_ignore_ascii_case("optimizedmedia") || original_name.eq_ignore_ascii_case("proxymedia") {
+        if original_name.eq_ignore_ascii_case("cacheclip")
+            || path_lower.contains("cacheclip")
+            || original_name.eq_ignore_ascii_case("optimizedmedia")
+            || original_name.eq_ignore_ascii_case("proxymedia")
+        {
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: "DaVinci Resolve Render Cache".to_string(),
@@ -373,24 +430,39 @@ impl HeuristicDiscoveryEngine {
             });
         }
 
-        if original_name.eq_ignore_ascii_case("media cache files") || original_name.eq_ignore_ascii_case("media cache") || original_name.eq_ignore_ascii_case("peak files") {
+        if original_name.eq_ignore_ascii_case("media cache files")
+            || original_name.eq_ignore_ascii_case("media cache")
+            || original_name.eq_ignore_ascii_case("peak files")
+        {
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: "Adobe Media Cache & Waveform Peak Files".to_string(),
                 category: "MEDIA".to_string(),
-                description: format!("Adobe Premiere Pro / After Effects media cache in {}", path_str),
+                description: format!(
+                    "Adobe Premiere Pro / After Effects media cache in {}",
+                    path_str
+                ),
                 safety: SafetyLevel::Safe,
                 action: RuleAction::DeleteContents,
             });
         }
 
-        if original_name.starts_with("blend_cache") || original_name.eq_ignore_ascii_case("render_cache") {
-            let parent_desc = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("3D Project");
+        if original_name.starts_with("blend_cache")
+            || original_name.eq_ignore_ascii_case("render_cache")
+        {
+            let parent_desc = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("3D Project");
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: format!("Blender & 3D Render Cache ({})", parent_desc),
                 category: "MEDIA".to_string(),
-                description: format!("Baked physics, simulations, and frame renders in {}", path_str),
+                description: format!(
+                    "Baked physics, simulations, and frame renders in {}",
+                    path_str
+                ),
                 safety: SafetyLevel::Safe,
                 action: RuleAction::DeleteContents,
             });
@@ -402,34 +474,59 @@ impl HeuristicDiscoveryEngine {
             let is_rust = path.join("debug").exists()
                 || path.join("release").exists()
                 || path.join("CACHEDIR.TAG").exists()
-                || path.parent().map(|p| p.join("Cargo.toml").exists()).unwrap_or(false);
+                || path
+                    .parent()
+                    .map(|p| p.join("Cargo.toml").exists())
+                    .unwrap_or(false);
 
             if is_rust {
-                let proj_name = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("Rust Project");
+                let proj_name = path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Rust Project");
                 return Some(DiscoveredCache {
                     path: path.to_path_buf(),
                     name: format!("Rust Build Target ({})", proj_name),
                     category: "DEVELOPER".to_string(),
-                    description: format!("Compiled compiler binaries and incremental artifacts in {}", path_str),
+                    description: format!(
+                        "Compiled compiler binaries and incremental artifacts in {}",
+                        path_str
+                    ),
                     safety: SafetyLevel::Safe,
                     action: RuleAction::DeleteContents,
                 });
             }
         }
 
-        if original_name.eq_ignore_ascii_case(".cache") || original_name.eq_ignore_ascii_case(".turbo") || original_name.eq_ignore_ascii_case(".parcel-cache") || original_name.eq_ignore_ascii_case(".next") {
-            let parent_desc = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("Web Project");
+        if original_name.eq_ignore_ascii_case(".cache")
+            || original_name.eq_ignore_ascii_case(".turbo")
+            || original_name.eq_ignore_ascii_case(".parcel-cache")
+            || original_name.eq_ignore_ascii_case(".next")
+        {
+            let parent_desc = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("Web Project");
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: format!("Web & Node Build Cache ({})", parent_desc),
                 category: "DEVELOPER".to_string(),
-                description: format!("Webpack, Vite, Next.js, and Turbo build caches in {}", path_str),
+                description: format!(
+                    "Webpack, Vite, Next.js, and Turbo build caches in {}",
+                    path_str
+                ),
                 safety: SafetyLevel::Safe,
                 action: RuleAction::DeleteContents,
             });
         }
 
-        if original_name.eq_ignore_ascii_case("__pycache__") || original_name.eq_ignore_ascii_case(".pytest_cache") || original_name.eq_ignore_ascii_case(".mypy_cache") || original_name.eq_ignore_ascii_case(".ruff_cache") {
+        if original_name.eq_ignore_ascii_case("__pycache__")
+            || original_name.eq_ignore_ascii_case(".pytest_cache")
+            || original_name.eq_ignore_ascii_case(".mypy_cache")
+            || original_name.eq_ignore_ascii_case(".ruff_cache")
+        {
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: "Python Bytecode & Test Cache".to_string(),
@@ -440,21 +537,39 @@ impl HeuristicDiscoveryEngine {
             });
         }
 
-        if original_name.eq_ignore_ascii_case(".vs") || original_name.eq_ignore_ascii_case("cmakefiles") || original_name.eq_ignore_ascii_case("intermediates") {
-            let parent_desc = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("Workspace");
+        if original_name.eq_ignore_ascii_case(".vs")
+            || original_name.eq_ignore_ascii_case("cmakefiles")
+            || original_name.eq_ignore_ascii_case("intermediates")
+        {
+            let parent_desc = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("Workspace");
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: format!("IDE & Compiler Intermediate Cache ({})", parent_desc),
                 category: "DEVELOPER".to_string(),
-                description: format!("Visual Studio browsing database and CMake build files in {}", path_str),
+                description: format!(
+                    "Visual Studio browsing database and CMake build files in {}",
+                    path_str
+                ),
                 safety: SafetyLevel::Safe,
                 action: RuleAction::DeleteContents,
             });
         }
 
         // 4. Web & Embedded Application Caches (Review safety to prevent terminating active apps)
-        if original_name.eq_ignore_ascii_case("gpucache") || original_name.eq_ignore_ascii_case("code cache") || original_name.eq_ignore_ascii_case("webcache") || original_name.eq_ignore_ascii_case("cache_data") {
-            let app_desc = path.parent().and_then(|p| p.file_name()).and_then(|n| n.to_str()).unwrap_or("App");
+        if original_name.eq_ignore_ascii_case("gpucache")
+            || original_name.eq_ignore_ascii_case("code cache")
+            || original_name.eq_ignore_ascii_case("webcache")
+            || original_name.eq_ignore_ascii_case("cache_data")
+        {
+            let app_desc = path
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("App");
             return Some(DiscoveredCache {
                 path: path.to_path_buf(),
                 name: format!("Application Web Cache ({})", app_desc),
@@ -466,7 +581,10 @@ impl HeuristicDiscoveryEngine {
         }
 
         // 5. Drive Root Temporary Folders
-        if original_name.eq_ignore_ascii_case("temp") || original_name.eq_ignore_ascii_case("tmp") || original_name.eq_ignore_ascii_case("temporary") {
+        if original_name.eq_ignore_ascii_case("temp")
+            || original_name.eq_ignore_ascii_case("tmp")
+            || original_name.eq_ignore_ascii_case("temporary")
+        {
             if path.components().count() <= 3 {
                 return Some(DiscoveredCache {
                     path: path.to_path_buf(),

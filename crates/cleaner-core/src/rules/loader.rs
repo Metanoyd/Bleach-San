@@ -54,7 +54,7 @@ pub fn load_rules_from_dir(dir: &Path) -> Result<Vec<CleanerRule>, RuleLoadError
 /// Returns the embedded default rules compiled into the binary.
 pub fn get_embedded_rules() -> Vec<CleanerRule> {
     let mut rules = Vec::new();
-    
+
     fn collect_rules(dir: &Dir, rules: &mut Vec<CleanerRule>) {
         for file in dir.files() {
             if file.path().extension().and_then(|e| e.to_str()) == Some("toml") {
@@ -62,7 +62,9 @@ pub fn get_embedded_rules() -> Vec<CleanerRule> {
                     let identifier = file.path().to_string_lossy().to_string();
                     match parse_rule_toml(content, &identifier) {
                         Ok(rule) => rules.push(rule),
-                        Err(e) => tracing::error!("Failed to parse embedded rule '{}': {}", identifier, e),
+                        Err(e) => {
+                            tracing::error!("Failed to parse embedded rule '{}': {}", identifier, e)
+                        }
                     }
                 }
             }
@@ -73,5 +75,23 @@ pub fn get_embedded_rules() -> Vec<CleanerRule> {
     }
 
     collect_rules(&RULES_DIR, &mut rules);
+    // Only reviewed recipes participate in the built-in cleaner.
+    rules.retain(|rule| {
+        matches!(
+            rule.id.as_str(),
+            "user_temp"
+                | "chrome"
+                | "brave"
+                | "edge"
+                | "firefox"
+                | "discord"
+                | "npm_cache"
+                | "electron_cache"
+                | "unreal_ddc"
+                | "directx_shader"
+                | "crash_dumps"
+                | "recycle_bin"
+        )
+    });
     rules
 }

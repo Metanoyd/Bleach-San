@@ -10,6 +10,7 @@ name = "bleachsan"
 path = "src/main.rs"
 
 [dependencies]
+windows = { workspace = true }
 cleaner-core = { workspace = true }
 cleaner-platform-windows = { workspace = true }
 cleaner-ui = { workspace = true }

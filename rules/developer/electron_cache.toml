@@ -1,0 +1,13 @@
+id = "electron_cache"
+name = "Electron Build Downloads"
+category = "developer"
+description = "Downloaded Electron build archives. They are fetched again when needed."
+safety = "Review"
+
+[[targets]]
+action = "DeleteContents"
+allowed_root = '%LOCALAPPDATA%\electron'
+path = '%LOCALAPPDATA%\electron\Cache'
+
+[requirements]
+process_closed = "node.exe, electron.exe"

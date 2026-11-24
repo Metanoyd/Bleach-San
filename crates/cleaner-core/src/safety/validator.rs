@@ -1,7 +1,7 @@
 use crate::models::SafetyLevel;
 use crate::safety::blocklist::{is_exact_protected_path, is_forbidden_from_cleanup};
-use cleaner_platform_windows::filesystem::{is_junction_or_symlink, normalize_path};
-use std::path::{Component, Path, PathBuf};
+use cleaner_platform_windows::filesystem::{normalize_path, verify_plain_path};
+use std::path::{Component, Path, PathBuf, Prefix};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq, Eq)]
@@ -37,6 +37,14 @@ pub fn validate_target_path(
 
     // 3. Normalize path (strip UNC \\?\)
     let normalized = normalize_path(raw_path);
+    if !normalized.is_absolute()
+        || !matches!(normalized.components().next(), Some(Component::Prefix(prefix)) if matches!(prefix.kind(), Prefix::Disk(_)))
+        || normalized
+            .components()
+            .any(|c| matches!(c, Component::Normal(n) if n.to_string_lossy().contains(':')))
+    {
+        return Err(SafetyError::InvalidPath);
+    }
 
     // 4. Reject exact protected roots (C:\, C:\Windows, C:\Program Files, etc.) or forbidden system directories
     if is_exact_protected_path(&normalized) || is_forbidden_from_cleanup(&normalized) {
@@ -48,7 +56,9 @@ pub fn validate_target_path(
     // 5. Allowed root containment check
     if let Some(root) = allowed_root {
         let normalized_root = normalize_path(root);
-        if !normalized.starts_with(&normalized_root) {
+        if !PathBuf::from(normalized.to_string_lossy().to_lowercase()).starts_with(PathBuf::from(
+            normalized_root.to_string_lossy().to_lowercase(),
+        )) {
             return Err(SafetyError::AllowedRootEscape(
                 normalized.to_string_lossy().to_string(),
                 normalized_root.to_string_lossy().to_string(),
@@ -57,8 +67,10 @@ pub fn validate_target_path(
     }
 
     // 6. Check if the path itself is an active reparse point pointing outside
-    if normalized.exists() && is_junction_or_symlink(&normalized).unwrap_or(false) {
-        return Err(SafetyError::UnsafeReparsePoint);
+    if let Err(error) = verify_plain_path(&normalized) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            return Err(SafetyError::UnsafeReparsePoint);
+        }
     }
 
     Ok(normalized)
@@ -83,7 +95,9 @@ pub fn classify_path_safety(path: &Path, declared_level: SafetyLevel) -> SafetyL
         ];
 
         for u_dir in &user_dirs {
-            if path.starts_with(u_dir) {
+            if PathBuf::from(path.to_string_lossy().to_lowercase())
+                .starts_with(PathBuf::from(u_dir.to_string_lossy().to_lowercase()))
+            {
                 return SafetyLevel::UserData;
             }
         }

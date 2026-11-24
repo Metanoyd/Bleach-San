@@ -1,0 +1,13 @@
+id = "unreal_ddc"
+name = "Unreal Derived Data"
+category = "applications"
+description = "Regenerable local Unreal derived data. The next editor startup can take longer."
+safety = "Review"
+
+[[targets]]
+action = "DeleteContents"
+allowed_root = '%LOCALAPPDATA%\UnrealEngine\Common'
+path = '%LOCALAPPDATA%\UnrealEngine\Common\DerivedDataCache'
+
+[requirements]
+process_closed = "UnrealEditor.exe, UE4Editor.exe, zenserver.exe"

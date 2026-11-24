@@ -31,6 +31,12 @@ export component CleanupPage {
     in property <bool> is-admin: true;
     in property <bool> is-creating-restore-point: false;
 
+    in-out property <bool> discover-extra: false;
+    in property <string> scanned-drive;
+    property <bool> scan-matches-drive: root.scanned-drive == root.selected-drive;
+    property <bool> confirm-clean: false;
+    changed selected-drive => { root.confirm-clean = false; }
+
     callback trigger-scan();
     callback trigger-clean();
     callback toggle-item(string, bool);
@@ -57,7 +63,7 @@ export component CleanupPage {
                     color: Theme.text-primary;
                 }
                 Text {
-                    text: "Select items to safely delete. Unknown or dangerous paths are strictly excluded.";
+                    text: "Scan for known caches and stale temporary files.";
                     font-size: Theme.font-xs;
                     color: Theme.text-secondary;
                 }
@@ -89,17 +95,48 @@ export component CleanupPage {
                     primary: false;
                     enabled: !root.is-scanning && !root.is-cleaning;
                     custom-width: 100px;
-                    clicked => { root.trigger-scan(); }
+                    clicked => { root.confirm-clean = false; root.trigger-scan(); }
                 }
 
                 MinimalButton {
-                    text: root.is-cleaning ? "Cleaning..." : "Clean Selected (" + root.total-selected-size + ")";
+                    text: root.is-cleaning ? "Cleaning..." : root.confirm-clean ? "Confirm removal" : "Clean Selected";
                     primary: true;
                     danger: false;
-                    enabled: !root.is-scanning && !root.is-cleaning && root.total-selected-count > 0;
+                    enabled: !root.is-scanning && !root.is-cleaning && root.scan-matches-drive && root.total-selected-count > 0;
                     custom-width: 190px;
-                    clicked => { root.trigger-clean(); }
+                    clicked => {
+                        if root.confirm-clean { root.confirm-clean = false; root.trigger-clean(); }
+                        else { root.confirm-clean = true; }
+                    }
                 }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 10px;
+            MinimalCheckbox {
+                checked: root.discover-extra;
+                enabled: !root.is-scanning && !root.is-cleaning;
+                toggled(c) => { root.discover-extra = c; }
+            }
+            Text {
+                text: "Include read-only discoveries (slower)";
+                color: Theme.text-secondary;
+                font-size: Theme.font-xs;
+                vertical-alignment: center;
+            }
+        }
+        if root.confirm-clean : HorizontalLayout {
+            spacing: 14px;
+            Text {
+                text: "Clean selected locations on " + root.scanned-drive + "? Estimated " + root.total-selected-size + ". Current eligible contents will be removed.";
+                color: Theme.text-primary;
+                vertical-alignment: center;
+            }
+            MinimalButton {
+                text: "Cancel";
+                primary: false;
+                clicked => { root.confirm-clean = false; }
             }
         }
 
@@ -120,7 +157,7 @@ export component CleanupPage {
                     spacing: 8px;
                     alignment: start;
                     Text {
-                        text: "🛡️ Standard User Mode: System driver & update caches require Administrator rights.";
+                        text: "Standard mode. Elevate only to create a Windows restore point.";
                         font-size: Theme.font-xs;
                         color: #fcd34d;
                         vertical-alignment: center;
@@ -150,14 +187,14 @@ export component CleanupPage {
         }
 
         // Progress bar if active
-        if root.is-scanning || root.is-cleaning : VerticalLayout {
+        VerticalLayout {
             spacing: 4px;
             Text {
-                text: root.status-text;
+                text: root.scanned-drive != "" && !root.scan-matches-drive && !root.is-scanning ? "Scan the selected drive before cleaning." : root.status-text;
                 font-size: Theme.font-xs;
                 color: Theme.accent-hover;
             }
-            MinimalProgressBar {
+            if root.is-scanning || root.is-cleaning : MinimalProgressBar {
                 progress: root.progress-val;
                 active: true;
             }
@@ -229,7 +266,7 @@ export component CleanupPage {
                     border-color: item.is-selected ? Theme.border : Theme.border-subtle;
                     border-width: 1px;
                     border-radius: Theme.radius-sm;
-                    height: 44px;
+                    height: 58px;
 
                     HorizontalLayout {
                         padding-left: 12px;
@@ -243,8 +280,8 @@ export component CleanupPage {
 
                             MinimalCheckbox {
                                 checked: item.is_selected;
-                                enabled: !item.is_blocked && !root.is-scanning && !root.is-cleaning;
-                                toggled(c) => { root.toggle-item(item.id, c); }
+                                enabled: !item.is_blocked && !root.is-scanning && !root.is-cleaning && item.file_count > 0 && item.safety_level != "PROTECTED" && item.safety_level != "USER_DATA";
+                                toggled(c) => { root.confirm-clean = false; root.toggle-item(item.id, c); }
                             }
 
                             VerticalLayout {
@@ -258,6 +295,12 @@ export component CleanupPage {
                                     color: item.is_blocked ? Theme.text-muted : Theme.text-primary;
                                 }
 
+                                Text {
+                                    text: item.description;
+                                    font-size: Theme.font-xs;
+                                    color: Theme.text-muted;
+                                    overflow: elide;
+                                }
                                 if item.is_blocked : Text {
                                     text: "Running (" + item.blocked_process + ") — close to clean";
                                     font-size: Theme.font-xs;

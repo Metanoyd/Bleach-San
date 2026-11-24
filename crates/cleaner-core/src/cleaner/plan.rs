@@ -4,7 +4,12 @@ use crate::models::{CleanupPlan, SafetyLevel};
 pub fn filter_actionable_plans(plans: &[CleanupPlan]) -> Vec<CleanupPlan> {
     plans
         .iter()
-        .filter(|p| p.is_selected && !p.is_blocked_by_process && p.total_bytes > 0)
+        .filter(|p| {
+            p.is_selected
+                && !p.is_blocked_by_process
+                && !crate::safety::levels::is_forbidden_from_cleanup(p.safety)
+                && p.total_bytes > 0
+        })
         .cloned()
         .collect()
 }
@@ -13,8 +18,14 @@ pub fn filter_actionable_plans(plans: &[CleanupPlan]) -> Vec<CleanupPlan> {
 pub fn calculate_total_selected_bytes(plans: &[CleanupPlan]) -> u64 {
     plans
         .iter()
-        .filter(|p| p.is_selected && !p.is_blocked_by_process)
-        .map(|p| p.total_bytes)
+        .filter(|p| {
+            p.is_selected
+                && !p.is_blocked_by_process
+                && !crate::safety::levels::is_forbidden_from_cleanup(p.safety)
+        })
+        .flat_map(|p| &p.candidates)
+        .filter(|c| c.is_selected && !crate::safety::levels::is_forbidden_from_cleanup(c.safety))
+        .map(|c| c.size_bytes)
         .sum()
 }
 

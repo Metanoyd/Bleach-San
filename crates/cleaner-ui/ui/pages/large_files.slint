@@ -1,6 +1,5 @@
 import { Theme } from "../theme.slint";
 import { MinimalButton } from "../components/button.slint";
-import { MinimalCheckbox } from "../components/checkbox.slint";
 import { MinimalBadge } from "../components/badge.slint";
 import { MinimalProgressBar } from "../components/progress_bar.slint";
 import { ListView, ComboBox } from "std-widgets.slint";
@@ -16,14 +15,12 @@ export struct UILargeFileItem {
 export component LargeFilesPage {
     in property <[UILargeFileItem]> items: [];
     in property <bool> is-scanning: false;
-    in property <bool> is-deleting: false;
     in property <string> status-text: "Ready to scan.";
     in property <[string]> available-drives: ["C:\\"];
     in-out property <string> selected-drive: "C:\\";
 
     callback trigger-scan();
-    callback trigger-delete();
-    callback toggle-item(string, bool);
+    callback open-location(string);
 
     VerticalLayout {
         width: 100%;
@@ -38,13 +35,13 @@ export component LargeFilesPage {
             VerticalLayout {
                 spacing: 2px;
                 Text {
-                    text: "Large Junk Files";
+                    text: "Large Files";
                     font-size: Theme.font-xl;
                     font-weight: 600;
                     color: Theme.text-primary;
                 }
                 Text {
-                    text: "Find and safely delete large files (>50MB) like old downloads, dumps, and installers.";
+                    text: "Review large files by location before making any changes.";
                     font-size: Theme.font-xs;
                     color: Theme.text-secondary;
                 }
@@ -58,30 +55,22 @@ export component LargeFilesPage {
                     width: 120px;
                     model: root.available-drives;
                     current-value <=> root.selected-drive;
-                    enabled: !root.is-scanning && !root.is-deleting;
+                    enabled: !root.is-scanning;
                 }
 
                 MinimalButton {
                     text: root.is-scanning ? "Scanning..." : "Scan Large Files";
                     primary: false;
-                    enabled: !root.is-scanning && !root.is-deleting;
+                    enabled: !root.is-scanning;
                     custom-width: 130px;
                     clicked => { root.trigger-scan(); }
                 }
 
-                MinimalButton {
-                    text: root.is-deleting ? "Deleting..." : "Delete Selected";
-                    primary: true;
-                    danger: true;
-                    enabled: !root.is-scanning && !root.is-deleting;
-                    custom-width: 140px;
-                    clicked => { root.trigger-delete(); }
-                }
             }
         }
 
         // Progress text
-        if root.is-scanning || root.is-deleting : VerticalLayout {
+        if root.is-scanning : VerticalLayout {
             spacing: 4px;
             Text {
                 text: root.status-text;
@@ -151,7 +140,7 @@ export component LargeFilesPage {
                 border-color: item.is-selected ? Theme.border : Theme.border-subtle;
                 border-width: 1px;
                 border-radius: Theme.radius-sm;
-                height: 44px;
+                height: 54px;
 
                 HorizontalLayout {
                     padding-left: 12px;
@@ -163,10 +152,11 @@ export component LargeFilesPage {
                         spacing: 12px;
                         width: 340px;
 
-                        MinimalCheckbox {
-                            checked: item.is_selected;
-                            enabled: !root.is-scanning && !root.is-deleting;
-                            toggled(c) => { root.toggle-item(item.id, c); }
+                        MinimalButton {
+                            text: "Locate";
+                            custom-width: 64px;
+                            primary: false;
+                            clicked => { root.open-location(item.id); }
                         }
 
                         VerticalLayout {
@@ -178,6 +168,12 @@ export component LargeFilesPage {
                                 font-size: Theme.font-sm;
                                 font-weight: 500;
                                 color: Theme.text-primary;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: item.id;
+                                font-size: Theme.font-xs;
+                                color: Theme.text-muted;
                                 overflow: elide;
                             }
                         }

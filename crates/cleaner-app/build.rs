@@ -1,36 +1,20 @@
 fn main() {
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
-        // Automatically terminate any running instance of bleachsan.exe to release the file lock for cargo/rustc
-        let _ = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-Process -Name 'bleachsan' -ErrorAction SilentlyContinue | Stop-Process -Force",
-            ])
-            .status();
+    if !cfg!(target_os = "windows") {
+        return;
     }
-
-    if cfg!(target_os = "windows") && !cfg!(debug_assertions) {
-        let mut res = winres::WindowsResource::new();
-        res.set_icon("icon.ico");
-        res.set_manifest(
-            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    let mut resources = winres::WindowsResource::new();
+    resources.set_icon("icon.ico");
+    resources.set_manifest(
+        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-    <security>
-      <requestedPrivileges>
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
-      </requestedPrivileges>
-    </security>
+    <security><requestedPrivileges>
+      <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+    </requestedPrivileges></security>
   </trustInfo>
 </assembly>"#,
-        );
-        res.compile().unwrap();
-    } else if cfg!(target_os = "windows") {
-        let mut res = winres::WindowsResource::new();
-        res.set_icon("icon.ico");
-        res.compile().unwrap();
-    }
+    );
+    resources
+        .compile()
+        .expect("compile Windows icon and manifest");
 }

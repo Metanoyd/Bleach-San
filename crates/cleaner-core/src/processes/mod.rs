@@ -23,12 +23,15 @@ impl ProcessGuard {
             _ => return None,
         };
 
-        let running_list = get_running_processes().unwrap_or_default();
+        let Ok(running_list) = get_running_processes() else {
+            return Some("process check unavailable".into());
+        };
         if running_list.is_empty() {
-            return None;
+            return Some("process check unavailable".into());
         }
 
-        let running_exact: HashSet<String> = running_list.iter().map(|p| p.to_lowercase()).collect();
+        let running_exact: HashSet<String> =
+            running_list.iter().map(|p| p.to_lowercase()).collect();
         let running_normalized: Vec<(String, String)> = running_list
             .iter()
             .map(|orig| (Self::normalize_proc_name(orig), orig.clone()))
@@ -113,48 +116,24 @@ impl ProcessGuard {
                     "bravecrashhandler.exe",
                     "bravecrashhandler64.exe",
                 ],
-                "firefox.exe" => vec![
-                    "firefox.exe",
-                    "zen.exe",
-                    "floorp.exe",
-                    "waterfox.exe",
-                ],
-                "spotify.exe" => vec![
-                    "spotify.exe",
-                ],
-                "steam.exe" => vec![
-                    "steam.exe",
-                    "steamwebhelper.exe",
-                    "steamservice.exe",
-                ],
-                "epicgameslauncher.exe" => vec![
-                    "epicgameslauncher.exe",
-                    "epicwebhelper.exe",
-                ],
+                "firefox.exe" => vec!["firefox.exe", "zen.exe", "floorp.exe", "waterfox.exe"],
+                "spotify.exe" => vec!["spotify.exe"],
+                "steam.exe" => vec!["steam.exe", "steamwebhelper.exe", "steamservice.exe"],
+                "epicgameslauncher.exe" => vec!["epicgameslauncher.exe", "epicwebhelper.exe"],
                 "teams.exe" | "ms-teams.exe" | "msteams.exe" => vec![
                     "teams.exe",
                     "ms-teams.exe",
                     "msteams.exe",
                     "ms-teamsupdate.exe",
                 ],
-                "whatsapp.exe" => vec![
-                    "whatsapp.exe",
-                    "whatsapp.root.exe",
-                ],
-                "zoom.exe" => vec![
-                    "zoom.exe",
-                    "airhost.exe",
-                    "cptemp.exe",
-                ],
-                "applemusic.exe" | "itunes.exe" => vec![
-                    "applemusic.exe",
-                    "applemusicwin.exe",
-                    "itunes.exe",
-                ],
-                "amazon music.exe" | "amazonmusic.exe" => vec![
-                    "amazon music.exe",
-                    "amazonmusic.exe",
-                ],
+                "whatsapp.exe" => vec!["whatsapp.exe", "whatsapp.root.exe"],
+                "zoom.exe" => vec!["zoom.exe", "airhost.exe", "cptemp.exe"],
+                "applemusic.exe" | "itunes.exe" => {
+                    vec!["applemusic.exe", "applemusicwin.exe", "itunes.exe"]
+                }
+                "amazon music.exe" | "amazonmusic.exe" => {
+                    vec!["amazon music.exe", "amazonmusic.exe"]
+                }
                 "photoshop.exe" | "adobe desktop service.exe" => vec![
                     "photoshop.exe",
                     "premiere pro.exe",
@@ -166,10 +145,7 @@ impl ProcessGuard {
                     "coresync.exe",
                     "adobe cef helper.exe",
                 ],
-                "onedrive.exe" => vec![
-                    "onedrive.exe",
-                    "filesyncconfig.exe",
-                ],
+                "onedrive.exe" => vec!["onedrive.exe", "filesyncconfig.exe"],
                 "robloxplayerbeta.exe" => vec![
                     "robloxplayerbeta.exe",
                     "robloxstudiobeta.exe",
@@ -181,10 +157,7 @@ impl ProcessGuard {
                     "nvcplui.exe",
                     "nvcontainer.exe",
                 ],
-                "figma.exe" => vec![
-                    "figma.exe",
-                    "figmaagent.exe",
-                ],
+                "figma.exe" => vec!["figma.exe", "figmaagent.exe"],
                 _ => vec![],
             };
 

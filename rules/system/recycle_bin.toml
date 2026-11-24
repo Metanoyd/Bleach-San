@@ -2,7 +2,7 @@ id = "recycle_bin"
 name = "Recycle Bin"
 category = "system"
 description = "Deleted files and folders currently stored in the Windows Recycle Bin."
-safety = "Safe"
+safety = "Review"
 
 [[targets]]
 path = "SPECIAL:RECYCLE_BIN"

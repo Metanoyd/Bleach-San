@@ -1,16 +1,48 @@
 use crate::rules::env_resolver::resolve_env_vars;
 use crate::rules::schema::{DiscoveryStrategy, RuleTarget};
 use glob::glob;
+use jwalk::WalkDir;
 use std::fs;
 use std::path::PathBuf;
-use jwalk::WalkDir;
 
 /// Resolves a RuleTarget into a list of absolute paths based on its discovery strategy.
 pub fn resolve_target_paths(target: &RuleTarget, target_drive: Option<&str>) -> Vec<String> {
     let mut resolved_paths = Vec::new();
-    
+
     if let Some(strategy) = &target.discovery {
         match strategy {
+            DiscoveryStrategy::ProfileCache {
+                base,
+                leaf,
+                chromium,
+            } => {
+                use cleaner_platform_windows::filesystem::{
+                    has_reparse_attribute, verify_plain_path,
+                };
+                if let Ok(base) = resolve_env_vars(base) {
+                    if verify_plain_path(&base).is_ok() {
+                        if let Ok(profiles) = fs::read_dir(base) {
+                            for profile in profiles.flatten() {
+                                let name = profile.file_name();
+                                let name = name.to_string_lossy();
+                                let named_profile = name == "Default"
+                                    || name.strip_prefix("Profile ").is_some_and(|n| {
+                                        !n.is_empty() && n.bytes().all(|ch| ch.is_ascii_digit())
+                                    });
+                                if (!chromium || named_profile)
+                                    && profile.metadata().is_ok_and(|meta| {
+                                        meta.is_dir() && !has_reparse_attribute(&meta)
+                                    })
+                                {
+                                    resolved_paths.push(
+                                        profile.path().join(leaf).to_string_lossy().into_owned(),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             DiscoveryStrategy::Config {
                 file,
                 format,
@@ -26,16 +58,16 @@ pub fn resolve_target_paths(target: &RuleTarget, target_drive: Option<&str>) -> 
                                 if line.starts_with(key) {
                                     if let Some((_, mut val)) = line.split_once('=') {
                                         val = val.trim().trim_matches('"');
-                                        
+
                                         // Unescape quotes and slashes if any
-                                        let unescaped = val.replace("\\\\", "\\").replace("\\\"", "\"");
+                                        let unescaped =
+                                            val.replace("\\\\", "\\").replace("\\\"", "\"");
                                         let mut base_path = PathBuf::from(unescaped);
-                                        
+
                                         if let Some(append_path) = append {
                                             base_path.push(append_path);
                                         }
-                                        
-                                        
+
                                         let path_str = base_path.to_string_lossy().to_string();
                                         resolved_paths.push(path_str);
                                         break;
@@ -56,9 +88,12 @@ pub fn resolve_target_paths(target: &RuleTarget, target_drive: Option<&str>) -> 
             DiscoveryStrategy::Glob { pattern } => {
                 let pattern_to_resolve = if let Some(target_drv) = target_drive {
                     if !target_drv.eq_ignore_ascii_case("All Drives") {
-                        crate::scanner::worker::apply_drive_to_path(&PathBuf::from(pattern), target_drv)
-                            .to_string_lossy()
-                            .to_string()
+                        crate::scanner::worker::apply_drive_to_path(
+                            &PathBuf::from(pattern),
+                            target_drv,
+                        )
+                        .to_string_lossy()
+                        .to_string()
                     } else {
                         pattern.clone()
                     }
@@ -88,9 +123,12 @@ pub fn resolve_target_paths(target: &RuleTarget, target_drive: Option<&str>) -> 
                 for base in base_paths {
                     let base_to_resolve = if let Some(target_drv) = target_drive {
                         if !target_drv.eq_ignore_ascii_case("All Drives") {
-                            crate::scanner::worker::apply_drive_to_path(&PathBuf::from(base), target_drv)
-                                .to_string_lossy()
-                                .to_string()
+                            crate::scanner::worker::apply_drive_to_path(
+                                &PathBuf::from(base),
+                                target_drv,
+                            )
+                            .to_string_lossy()
+                            .to_string()
                         } else {
                             base.clone()
                         }
@@ -140,7 +178,7 @@ pub fn resolve_target_paths(target: &RuleTarget, target_drive: Option<&str>) -> 
             resolved_paths.push(path.clone());
         }
     }
-    
+
     // Apply drive substitution if requested
     if let Some(target_drv) = target_drive {
         let clean_drv = target_drv.trim_end_matches('\\'); // e.g., "D:"
@@ -155,6 +193,6 @@ pub fn resolve_target_paths(target: &RuleTarget, target_drive: Option<&str>) -> 
             }
         }
     }
-    
+
     resolved_paths
 }
